@@ -80,7 +80,10 @@ end
 
     See also [`Trixi.set_sqrt_type!`](@ref).
     """
-    @inline sqrt(x::Real) = x < zero(x) ? oftype(x, NaN) : Base.sqrt(x)
+    @inline sqrt(x::Real) = begin 
+        x < zero(x) * return oftype(x, NaN)
+        return Base.sqrt(x) 
+    end
 
     # For `sqrt` we could use the `sqrt_llvm` call, ...
     #@inline sqrt(x::Union{Float64, Float32, Float16}) = Base.sqrt_llvm(x)
@@ -191,15 +194,21 @@ Given ε = 1.0e-4, we use the following algorithm.
 @inline function ln_mean(x::RealT, y::RealT) where {RealT <: Real}
     epsilon_f2 = convert(RealT, 1.0e-4)
     f2 = (x * (x - 2 * y) + y * y) / (x * (x + 2 * y) + y * y) # f2 = f^2
-    if f2 < epsilon_f2
-        return (x + y) / @evalpoly(f2,
+    (f2 < epsilon_f2) * return (x + y) / @evalpoly(f2,
                          2,
                          convert(RealT, 2 / 3),
                          convert(RealT, 2 / 5),
                          convert(RealT, 2 / 7))
-    else
-        return (y - x) / log(y / x)
-    end
+    (f2 >= epsilon_f2) * return (y - x) / log(y / x)
+    # if f2 < epsilon_f2
+    #     return (x + y) / @evalpoly(f2,
+    #                      2,
+    #                      convert(RealT, 2 / 3),
+    #                      convert(RealT, 2 / 5),
+    #                      convert(RealT, 2 / 7))
+    # else
+    #     return (y - x) / log(y / x)
+    # end
 end
 
 """
@@ -217,15 +226,21 @@ multiplication.
 @inline function inv_ln_mean(x::RealT, y::RealT) where {RealT <: Real}
     epsilon_f2 = convert(RealT, 1.0e-4)
     f2 = (x * (x - 2 * y) + y * y) / (x * (x + 2 * y) + y * y) # f2 = f^2
-    if f2 < epsilon_f2
-        return @evalpoly(f2,
+    (f2 < epsilon_f2) * return @evalpoly(f2,
                          2,
                          convert(RealT, 2 / 3),
                          convert(RealT, 2 / 5),
                          convert(RealT, 2 / 7)) / (x + y)
-    else
-        return log(y / x) / (y - x)
-    end
+    (f2 >= epsilon_f2) * return log(y / x) / (y - x)
+    # if f2 < epsilon_f2
+    #     return @evalpoly(f2,
+    #                      2,
+    #                      convert(RealT, 2 / 3),
+    #                      convert(RealT, 2 / 5),
+    #                      convert(RealT, 2 / 7)) / (x + y)
+    # else
+    #     return log(y / x) / (y - x)
+    # end
 end
 
 # `Base.max` and `Base.min` perform additional checks for signed zeros and `NaN`s
