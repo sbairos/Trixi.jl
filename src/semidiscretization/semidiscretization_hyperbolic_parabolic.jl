@@ -338,7 +338,8 @@ The arguments `jac_prototype` and the `colorvec` are expected to come from [Spar
 and specify the sparsity structure of the Jacobian to enable efficient implicit time stepping.
 """
 function semidiscretize(semi::SemidiscretizationHyperbolicParabolic, tspan,
-                        jac_prototype::AbstractMatrix, colorvec::AbstractVector;
+                        jac_prototype::AbstractMatrix, colorvec::AbstractVector,
+                        jac_prototype_para::AbstractMatrix, colorvec_para::AbstractVector;
                         reset_threads = true)
     println("In semi1")
     # Optionally reset Polyester.jl threads. See
@@ -356,7 +357,7 @@ function semidiscretize(semi::SemidiscretizationHyperbolicParabolic, tspan,
 
     # Convert the `jac_prototype` to real type, as seen here:
     # https://docs.sciml.ai/DiffEqDocs/stable/tutorials/advanced_ode_example/#Declaring-a-Sparse-Jacobian-with-Automatic-Sparsity-Detection
-    rhs_parabolic_ode = SciMLBase.ODEFunction(rhs_parabolic!)
+    rhs_parabolic_ode = SciMLBase.ODEFunction(rhs_parabolic!, jac_prototype = float.(jac_prototype_para), colorvec = colorvec_para)
     rhs_ode = SciMLBase.ODEFunction(rhs!, jac_prototype = float.(jac_prototype), colorvec = colorvec)
     # Note that the IMEX time integration methods of OrdinaryDiffEq.jl treat the
     # first function implicitly and the second one explicitly. Thus, we pass the
@@ -381,7 +382,8 @@ and specify the sparsity structure of the Jacobian to enable efficient implicit 
 """
 function semidiscretize(semi::SemidiscretizationHyperbolicParabolic, tspan,
                         restart_file::AbstractString,
-                        jac_prototype::AbstractMatrix, colorvec::AbstractVector;
+                        jac_prototype::AbstractMatrix, colorvec::AbstractVector,
+                        jac_prototype_para::AbstractMatrix, colorvec_para::AbstractVector;
                         reset_threads = true)
     println("In semi")
     # Optionally reset Polyester.jl threads. See
@@ -399,12 +401,13 @@ function semidiscretize(semi::SemidiscretizationHyperbolicParabolic, tspan,
 
     # Convert the `jac_prototype` to real type, as seen here:
     # https://docs.sciml.ai/DiffEqDocs/stable/tutorials/advanced_ode_example/#Declaring-a-Sparse-Jacobian-with-Automatic-Sparsity-Detection
-    rhs_parabolic_ode = SciMLBase.ODEFunction(rhs_parabolic!)
+    rhs_parabolic_ode = SciMLBase.ODEFunction(rhs_parabolic!, jac_prototype = float.(jac_prototype_para), colorvec = colorvec_para)
     rhs_ode = SciMLBase.ODEFunction(rhs!, jac_prototype = float.(jac_prototype), colorvec = colorvec)
+    
     # Note that the IMEX time integration methods of OrdinaryDiffEq.jl treat the
     # first function implicitly and the second one explicitly. Thus, we pass the
     # stiffer parabolic function first.
-    return SplitODEProblem{iip}(split_func, u0_ode, tspan, semi)
+    return SplitODEProblem{iip}(rhs_parabolic_ode, rhs_ode, u0_ode, tspan, semi)
 end
 
 function rhs!(du_ode, u_ode, semi::SemidiscretizationHyperbolicParabolic, t)
