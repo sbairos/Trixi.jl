@@ -122,6 +122,7 @@ du_ode = similar(u0_ode)
 # to fulfill the requirements of an in_place function in SparseDiffTools
 # (see example function `f` from https://docs.sciml.ai/SparseDiffTools/dev/#Example)
 rhs = (du_ode, u0_ode) -> Trixi.rhs!(du_ode, u0_ode, semi_real, t0)
+rhs_parabolic = (du_para, u0_para) -> Trixi.rhs_parabolic!(du_para, u0_para, semi_real, t0)
 
 # Taken from example linked above to detect the pattern and choose how to do the AutoDiff automatically
 sd = SymbolicsSparsityDetection()
@@ -131,6 +132,7 @@ sparse_adtype = AutoSparse(ad_type)
 # `sparse_cache` will reduce calculation time when Jacobian is calculated multiple times,
 # which is in principle not required for the linear problem considered here.
 sparse_cache = sparse_jacobian_cache(sparse_adtype, sd, rhs, du_ode, u0_ode)
+sparse_cache_para = sparse_jacobian_cache(sparse_adtype, sd, rhs_parabolic, du_ode, u0_ode)
 
 ###############################################################################################
 ### Set up sparse-aware ODEProblem ###
@@ -143,7 +145,9 @@ Trixi.one(x::Type{Real}) = Base.one(x)
 # Supply Jacobian prototype and coloring vector to the semidiscretization
 ode_float_jac_sparse = semidiscretize(semi_float, tspan,
                                       sparse_cache.jac_prototype,
-                                      sparse_cache.coloring.colorvec)
+                                      sparse_cache.coloring.colorvec,
+                                      sparse_cache_para.jac_prototype,
+                                      sparse_cache_para.coloring.colorvec)
 
 # Note: We experimented for linear problems with providing the constant, sparse Jacobian directly via
 #
@@ -177,8 +181,9 @@ callbacks = CallbackSet(summary_callback, analysis_callback, alive_callback, sav
 # run the simulation
 
 # OrdinaryDiffEq's `solve` method evolves the solution in time and executes the passed callbacks
-time_int_tol = 1.0e-10
-time_abs_tol = 1.0e-10
+time_int_tol = 1.0e-9
+time_abs_tol = 1.0e-9
+
 sol = solve(ode_float_jac_sparse, TRBDF2(; autodiff = ad_type);
             adaptive = true, save_everystep = false,
             abstol = time_abs_tol, reltol = time_int_tol,
