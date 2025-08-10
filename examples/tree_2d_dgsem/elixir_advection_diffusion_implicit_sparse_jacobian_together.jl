@@ -121,8 +121,23 @@ du_ode = similar(u0_ode)
 # Create a function with two parameters: `du_ode` and `u0_ode`
 # to fulfill the requirements of an in_place function in SparseDiffTools
 # (see example function `f` from https://docs.sciml.ai/SparseDiffTools/dev/#Example)
-rhs = (du_ode, u0_ode) -> Trixi.rhs!(du_ode, u0_ode, semi_real, t0)
-rhs_parabolic = (du_para, u0_para) -> Trixi.rhs_parabolic!(du_para, u0_para, semi_real, t0)
+
+function rhs_hyperbolic_parabolic!(du_ode, u_ode)
+    Trixi.@trixi_timeit Trixi.timer() "rhs_hyperbolic_parabolic!" begin
+        # Implementation of split ODE problem in OrdinaryDiffEq
+        du_para = similar(du_ode) # This obviously allocates
+        Trixi.rhs!(du_ode, u_ode, semi_real, t0) # hyperbolic part
+        Trixi.rhs_parabolic!(du_para, u_ode, semi_real, t0)
+
+        Trixi.@threaded for i in eachindex(du_ode)
+            # Try to enable optimizations due to `muladd` by avoiding `+=`
+            # https://github.com/trixi-framework/Trixi.jl/pull/2480#discussion_r2224531702
+            du_ode[i] = du_ode[i] + du_para[i]
+        end
+    end
+end
+# rhs = (du_ode, u0_ode) -> Trixi.rhs!(du_ode, u0_ode, semi_real, t0)
+# rhs_parabolic = (du_para, u0_para) -> Trixi.rhs_parabolic!(du_para, u0_para, semi_real, t0)
 
 # Taken from example linked above to detect the pattern and choose how to do the AutoDiff automatically
 sd = SymbolicsSparsityDetection()
@@ -131,8 +146,9 @@ sparse_adtype = AutoSparse(ad_type)
 
 # `sparse_cache` will reduce calculation time when Jacobian is calculated multiple times,
 # which is in principle not required for the linear problem considered here.
-sparse_cache_rhs = sparse_jacobian_cache(sparse_adtype, sd, rhs, du_ode, u0_ode)
-sparse_cache_para = sparse_jacobian_cache(sparse_adtype, sd, rhs_parabolic, du_ode, u0_ode)
+sparse_cache = sparse_jacobian_cache(sparse_adtype, sd, rhs_hyperbolic_parabolic!, du_ode, u0_ode)
+# sparse_cache = sparse_jacobian_cache(sparse_adtype, sd, rhs, du_ode, u0_ode)
+# sparse_cache_para = sparse_jacobian_cache(sparse_adtype, sd, rhs_parabolic, du_ode, u0_ode)
 
 ###############################################################################################
 ### Set up sparse-aware ODEProblem ###
@@ -144,10 +160,11 @@ Trixi.one(x::Type{Real}) = Base.one(x)
 
 # Supply Jacobian prototype and coloring vector to the semidiscretization
 ode_float_jac_sparse = semidiscretize(semi_float, tspan,
-                                      sparse_cache_rhs.jac_prototype,
-                                      sparse_cache_rhs.coloring.colorvec,
-                                      sparse_cache_para.jac_prototype,
-                                      sparse_cache_para.coloring.colorvec)
+                                      sparse_cache.jac_prototype,
+                                      sparse_cache.coloring.colorvec#,
+                                    #   sparse_cache_para.jac_prototype,
+                                    #   sparse_cache_para.coloring.colorvec
+                                      )
 
 # Note: We experimented for linear problems with providing the constant, sparse Jacobian directly via
 #
@@ -184,7 +201,7 @@ callbacks = CallbackSet(summary_callback, analysis_callback, alive_callback, sav
 time_int_tol = 1.0e-9
 time_abs_tol = 1.0e-9
 
-sol = solve(ode_float_jac_sparse, TRBDF2(; autodiff = ad_type);
+sol2 = solve(ode_float_jac_sparse, TRBDF2(; autodiff = ad_type);
             adaptive = true, save_everystep = false,
             abstol = time_abs_tol, reltol = time_int_tol,
             ode_default_options()..., callback = callbacks)
