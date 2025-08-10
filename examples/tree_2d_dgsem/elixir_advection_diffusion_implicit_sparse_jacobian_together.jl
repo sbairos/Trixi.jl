@@ -147,9 +147,8 @@ sparse_adtype = AutoSparse(ad_type)
 # `sparse_cache` will reduce calculation time when Jacobian is calculated multiple times,
 # which is in principle not required for the linear problem considered here.
 sparse_cache = sparse_jacobian_cache(sparse_adtype, sd, rhs_hyperbolic_parabolic!, du_ode, u0_ode)
-# sparse_cache = sparse_jacobian_cache(sparse_adtype, sd, rhs, du_ode, u0_ode)
-# sparse_cache_para = sparse_jacobian_cache(sparse_adtype, sd, rhs_parabolic, du_ode, u0_ode)
-
+const jac_sparse = sparse_jacobian(ad_type, sparse_cache, rhs_hyperbolic_parabolic!, du_ode, u0_ode)
+const jac_sparse_func!(J, u, p, t) = jac_sparse
 ###############################################################################################
 ### Set up sparse-aware ODEProblem ###
 
@@ -159,9 +158,8 @@ Trixi.one(x::Type{Real}) = Base.one(x)
 # Trixi.zero(x::Type{Real}) = Base.zero(x)
 
 # Supply Jacobian prototype and coloring vector to the semidiscretization
-ode_float_jac_sparse = semidiscretize(semi_float, tspan,
-                                      sparse_cache.jac_prototype,
-                                      sparse_cache.coloring.colorvec#,
+ode_float_jac_sparse2 = semidiscretize(semi_float, tspan,
+                                      jac_sparse_func!#,
                                     #   sparse_cache_para.jac_prototype,
                                     #   sparse_cache_para.coloring.colorvec
                                       )
@@ -201,7 +199,7 @@ callbacks = CallbackSet(summary_callback, analysis_callback, alive_callback, sav
 time_int_tol = 1.0e-9
 time_abs_tol = 1.0e-9
 
-sol2 = solve(ode_float_jac_sparse, TRBDF2(; autodiff = ad_type);
+sol2 = solve(ode_float_jac_sparse2, TRBDF2(; autodiff = ad_type);
             adaptive = true, save_everystep = false,
             abstol = time_abs_tol, reltol = time_int_tol,
             ode_default_options()..., callback = callbacks)

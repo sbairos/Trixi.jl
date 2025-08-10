@@ -133,6 +133,18 @@ sparse_adtype = AutoSparse(ad_type)
 # which is in principle not required for the linear problem considered here.
 sparse_cache_rhs = sparse_jacobian_cache(sparse_adtype, sd, rhs, du_ode, u0_ode)
 sparse_cache_para = sparse_jacobian_cache(sparse_adtype, sd, rhs_parabolic, du_ode, u0_ode)
+const jac_sparse_rhs = sparse_jacobian(ad_type, sparse_cache_rhs, rhs, du_ode, u0_ode)
+function jac_sparse_func_rhs!(J, u, p, t) 
+    println(J)
+    println(u)
+    println(p)
+    println(t)
+    jac_sparse_rhs
+end 
+const jac_sparse_para = sparse_jacobian(ad_type, sparse_cache_para, rhs_parabolic, du_ode, u0_ode)
+function jac_sparse_func_para!(J, u, p, t)
+    jac_sparse_para
+end
 
 ###############################################################################################
 ### Set up sparse-aware ODEProblem ###
@@ -144,10 +156,8 @@ Trixi.one(x::Type{Real}) = Base.one(x)
 
 # Supply Jacobian prototype and coloring vector to the semidiscretization
 ode_float_jac_sparse = semidiscretize(semi_float, tspan,
-                                      sparse_cache_rhs.jac_prototype,
-                                      sparse_cache_rhs.coloring.colorvec,
-                                      sparse_cache_para.jac_prototype,
-                                      sparse_cache_para.coloring.colorvec)
+                                      jac_sparse_func_rhs!,
+                                      jac_sparse_func_para!)
 
 # Note: We experimented for linear problems with providing the constant, sparse Jacobian directly via
 #
