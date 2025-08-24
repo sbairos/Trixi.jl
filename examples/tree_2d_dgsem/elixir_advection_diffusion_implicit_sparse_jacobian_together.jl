@@ -158,8 +158,8 @@ Trixi.one(x::Type{Real}) = Base.one(x)
 # Trixi.zero(x::Type{Real}) = Base.zero(x)
 
 # Supply Jacobian prototype and coloring vector to the semidiscretization
-ode_float_jac_sparse2 = semidiscretize(semi_float, tspan,
-                                      jac_sparse_func!#,
+ode_float_jac_sparse2 = Trixi.semidiscretize2(semi_float, tspan,
+                                      jac_shared = jac_sparse_func!#,
                                     #   sparse_cache_para.jac_prototype,
                                     #   sparse_cache_para.coloring.colorvec
                                       )

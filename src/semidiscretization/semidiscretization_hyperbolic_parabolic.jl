@@ -326,7 +326,7 @@ function semidiscretize(semi::SemidiscretizationHyperbolicParabolic, tspan,
 end
 
 """
-    semidiscretize(semi::SemidiscretizationHyperbolicParabolic, tspan)
+    semidiscretize2(semi::SemidiscretizationHyperbolicParabolic, tspan)
 
 Wrap the semidiscretization `semi` as a split ODE problem in the time interval `tspan`
 that can be passed to `solve` from the [SciML ecosystem](https://diffeq.sciml.ai/latest/).
@@ -337,9 +337,12 @@ SciML ecosystem.
 The arguments `jac_prototype` and the `colorvec` are expected to come from [SparseDiffTools.jl](https://github.com/JuliaDiff/SparseDiffTools.jl)
 and specify the sparsity structure of the Jacobian to enable efficient implicit time stepping.
 """
-function semidiscretize(semi::SemidiscretizationHyperbolicParabolic, tspan,
-                        jac_prototype_shared::AbstractMatrix, colorvec_shared::AbstractVector;
-                        reset_threads = true)
+function semidiscretize2(semi::SemidiscretizationHyperbolicParabolic, tspan;
+    jac_prototype_parabolic_rhs::Union{AbstractMatrix, Nothing} = nothing, colorvec_parabolic_rhs::Union{AbstractVector, Nothing} = nothing, 
+    jac_prototype_rhs:: Union{AbstractMatrix, Nothing} = nothing, colorvec_rhs::Union{AbstractVector, Nothing}  = nothing,                 
+    jac_prototype_shared::Union{AbstractMatrix, Nothing} = nothing, colorvec_shared::Union{AbstractVector, Nothing}  = nothing,
+    jac_rhs = nothing, jac_parabolic_rhs = nothing, jac_shared = nothing,
+    reset_threads = true)
     println("In semi1")
     # Optionally reset Polyester.jl threads. See
     # https://github.com/trixi-framework/Trixi.jl/issues/1583
@@ -356,273 +359,24 @@ function semidiscretize(semi::SemidiscretizationHyperbolicParabolic, tspan,
 
     # Convert the `jac_prototype` to real type, as seen here:
     # https://docs.sciml.ai/DiffEqDocs/stable/tutorials/advanced_ode_example/#Declaring-a-Sparse-Jacobian-with-Automatic-Sparsity-Detection
-    rhs_parabolic_ode = SciMLBase.ODEFunction(rhs_parabolic!, jac_prototype = float.(jac_prototype_shared), colorvec = colorvec_shared)
-    # rhs_ode = SciMLBase.ODEFunction(rhs!, jac_prototype = float.(jac_prototype), colorvec = colorvec)
-    ode_split = SciMLBase.SplitFunction(rhs_parabolic_ode, rhs!, jac_prototype = jac_prototype_shared, colorvec = colorvec_shared)
-    # Note that the IMEX time integration methods of OrdinaryDiffEq.jl treat the
-    # first function implicitly and the second one explicitly. Thus, we pass the
-    # stiffer parabolic function first.
-    return SplitODEProblem{iip}(ode_split, u0_ode, tspan, semi)
-end
-
-"""
-    semidiscretize(semi::SemidiscretizationHyperbolicParabolic, tspan,
-                   restart_file::AbstractString)
-
-Wrap the semidiscretization `semi` as a split ODE problem in the time interval `tspan`
-that can be passed to `solve` from the [SciML ecosystem](https://diffeq.sciml.ai/latest/).
-The parabolic right-hand side is the first function of the split ODE problem and
-will be used by default by the implicit part of IMEX methods from the
-SciML ecosystem.
-
-The initial condition etc. is taken from the `restart_file`.
-
-The arguments `jac_prototype` and the `colorvec` are expected to come from [SparseDiffTools.jl](https://github.com/JuliaDiff/SparseDiffTools.jl)
-and specify the sparsity structure of the Jacobian to enable efficient implicit time stepping.
-"""
-function semidiscretize(semi::SemidiscretizationHyperbolicParabolic, tspan,
-                        restart_file::AbstractString,
-                        # jac_prototype::AbstractMatrix, colorvec::AbstractVector,
-                        jac_prototype_shared::AbstractMatrix, colorvec_shared::AbstractVector;
-                        reset_threads = true)
-    println("In semi")
-    # Optionally reset Polyester.jl threads. See
-    # https://github.com/trixi-framework/Trixi.jl/issues/1583
-    # https://github.com/JuliaSIMD/Polyester.jl/issues/30
-    if reset_threads
-        Polyester.reset_threads!()
+    if jac_prototype_parabolic_rhs !== nothing
+        jac_prototype_parabolic_rhs = float.(jac_prototype_parabolic_rhs)
+    end
+    if jac_prototype_rhs !== nothing
+        jac_prototype_rhs = float.(jac_prototype_rhs)
+    end
+    if jac_prototype_shared !== nothing
+        jac_prototype_shared = float.(jac_prototype_shared)
     end
 
-    u0_ode = load_restart_file(semi, restart_file)
-    # TODO: MPI, do we want to synchronize loading and print debug statements, e.g. using
-    #       mpi_isparallel() && MPI.Barrier(mpi_comm())
-    #       See https://github.com/trixi-framework/Trixi.jl/issues/328
-    iip = true # is-inplace, i.e., we modify a vector when calling rhs_parabolic!, rhs!
-
-    # Convert the `jac_prototype` to real type, as seen here:
-    # https://docs.sciml.ai/DiffEqDocs/stable/tutorials/advanced_ode_example/#Declaring-a-Sparse-Jacobian-with-Automatic-Sparsity-Detection
-    rhs_parabolic_ode = SciMLBase.ODEFunction(rhs_parabolic!, jac_prototype = float.(jac_prototype_shared), colorvec = colorvec_shared)
-    # rhs_ode = SciMLBase.ODEFunction(rhs!, jac_prototype = float.(jac_prototype), colorvec = colorvec)
-    ode_split = SciMLBase.SplitFunction(rhs_parabolic_ode, rhs!, jac_prototype = jac_prototype_shared, colorvec = colorvec_shared)
-
-    # Note that the IMEX time integration methods of OrdinaryDiffEq.jl treat the
-    # first function implicitly and the second one explicitly. Thus, we pass the
-    # stiffer parabolic function first.
-    return SplitODEProblem{iip}(ode_split, u0_ode, tspan, semi)
-end
-
-function semidiscretize(semi::SemidiscretizationHyperbolicParabolic, tspan,
-                        jac_rhs::Function, jac_para::Function;
-                        reset_threads = true)
-    println("In semi1")
-    # Optionally reset Polyester.jl threads. See
-    # https://github.com/trixi-framework/Trixi.jl/issues/1583
-    # https://github.com/JuliaSIMD/Polyester.jl/issues/30
-    if reset_threads
-        Polyester.reset_threads!()
-    end
-
-    u0_ode = compute_coefficients(first(tspan), semi)
-    # TODO: MPI, do we want to synchronize loading and print debug statements, e.g. using
-    #       mpi_isparallel() && MPI.Barrier(mpi_comm())
-    #       See https://github.com/trixi-framework/Trixi.jl/issues/328
-    iip = true # is-inplace, i.e., we modify a vector when calling rhs_parabolic!, rhs!
-
-    # Convert the `jac_prototype` to real type, as seen here:
-    # https://docs.sciml.ai/DiffEqDocs/stable/tutorials/advanced_ode_example/#Declaring-a-Sparse-Jacobian-with-Automatic-Sparsity-Detection
-    rhs_parabolic_ode = SciMLBase.ODEFunction{iip}(rhs_parabolic!, jac = jac_para)
-    rhs_ode = SciMLBase.ODEFunction(rhs!, jac = jac_rhs)
-    # Note that the IMEX time integration methods of OrdinaryDiffEq.jl treat the
-    # first function implicitly and the second one explicitly. Thus, we pass the
-    # stiffer parabolic function first.
-    return SplitODEProblem{iip}(rhs_parabolic_ode, rhs_ode, u0_ode, tspan, semi)
-end
-
-function semidiscretize(semi::SemidiscretizationHyperbolicParabolic, tspan,
-                        restart_file::AbstractString,
-                        jac_rhs::Function, jac_para::Function;
-                        reset_threads = true)
-    println("In semi")
-    # Optionally reset Polyester.jl threads. See
-    # https://github.com/trixi-framework/Trixi.jl/issues/1583
-    # https://github.com/JuliaSIMD/Polyester.jl/issues/30
-    if reset_threads
-        Polyester.reset_threads!()
-    end
-
-    u0_ode = load_restart_file(semi, restart_file)
-    # TODO: MPI, do we want to synchronize loading and print debug statements, e.g. using
-    #       mpi_isparallel() && MPI.Barrier(mpi_comm())
-    #       See https://github.com/trixi-framework/Trixi.jl/issues/328
-    iip = true # is-inplace, i.e., we modify a vector when calling rhs_parabolic!, rhs!
-
-    # Convert the `jac_prototype` to real type, as seen here:
-    # https://docs.sciml.ai/DiffEqDocs/stable/tutorials/advanced_ode_example/#Declaring-a-Sparse-Jacobian-with-Automatic-Sparsity-Detection
-    rhs_parabolic_ode = SciMLBase.ODEFunction(rhs_parabolic!, jac = jac_para)
-    rhs_ode = SciMLBase.ODEFunction(rhs!, jac = jac_rhs)
+    rhs_parabolic_ode = SciMLBase.ODEFunction(rhs_parabolic!, jac = jac_parabolic_rhs, jac_prototype = jac_prototype_parabolic_rhs, colorvec = colorvec_parabolic_rhs)
+    rhs_ode = SciMLBase.ODEFunction(rhs!, jac = jac_rhs, jac_prototype = jac_prototype_rhs, colorvec = colorvec_rhs)
+    ode_split = SciMLBase.SplitFunction(rhs_parabolic_ode, rhs_ode, jac = jac_shared, jac_prototype = jac_prototype_shared, colorvec = colorvec_shared)
     
     # Note that the IMEX time integration methods of OrdinaryDiffEq.jl treat the
     # first function implicitly and the second one explicitly. Thus, we pass the
     # stiffer parabolic function first.
-    return SplitODEProblem{iip}(rhs_parabolic_ode, rhs_ode, u0_ode, tspan, semi)
-end
-
-function semidiscretize(semi::SemidiscretizationHyperbolicParabolic, tspan,
-                        jac_shared::Function;
-                        reset_threads = true)
-    println("In semi1")
-    # Optionally reset Polyester.jl threads. See
-    # https://github.com/trixi-framework/Trixi.jl/issues/1583
-    # https://github.com/JuliaSIMD/Polyester.jl/issues/30
-    if reset_threads
-        Polyester.reset_threads!()
-    end
-
-    u0_ode = compute_coefficients(first(tspan), semi)
-    # TODO: MPI, do we want to synchronize loading and print debug statements, e.g. using
-    #       mpi_isparallel() && MPI.Barrier(mpi_comm())
-    #       See https://github.com/trixi-framework/Trixi.jl/issues/328
-    iip = true # is-inplace, i.e., we modify a vector when calling rhs_parabolic!, rhs!
-
-    # Convert the `jac_prototype` to real type, as seen here:
-    # https://docs.sciml.ai/DiffEqDocs/stable/tutorials/advanced_ode_example/#Declaring-a-Sparse-Jacobian-with-Automatic-Sparsity-Detection
-    rhs_parabolic_ode = SciMLBase.ODEFunction{iip}(rhs_parabolic!, jac = jac_shared)
-    # rhs_ode = SciMLBase.ODEFunction(rhs!, jac_prototype = float.(jac_prototype), colorvec = colorvec)
-    ode_split = SciMLBase.SplitFunction(rhs_parabolic_ode, rhs!, jac = jac_shared)
-    # Note that the IMEX time integration methods of OrdinaryDiffEq.jl treat the
-    # first function implicitly and the second one explicitly. Thus, we pass the
-    # stiffer parabolic function first.
     return SplitODEProblem{iip}(ode_split, u0_ode, tspan, semi)
-end
-
-"""
-    semidiscretize(semi::SemidiscretizationHyperbolicParabolic, tspan,
-                   restart_file::AbstractString)
-
-Wrap the semidiscretization `semi` as a split ODE problem in the time interval `tspan`
-that can be passed to `solve` from the [SciML ecosystem](https://diffeq.sciml.ai/latest/).
-The parabolic right-hand side is the first function of the split ODE problem and
-will be used by default by the implicit part of IMEX methods from the
-SciML ecosystem.
-
-The initial condition etc. is taken from the `restart_file`.
-
-The arguments `jac_prototype` and the `colorvec` are expected to come from [SparseDiffTools.jl](https://github.com/JuliaDiff/SparseDiffTools.jl)
-and specify the sparsity structure of the Jacobian to enable efficient implicit time stepping.
-"""
-function semidiscretize(semi::SemidiscretizationHyperbolicParabolic, tspan,
-                        restart_file::AbstractString,
-                        jac_shared::Function;
-                        reset_threads = true)
-    println("In semi")
-    # Optionally reset Polyester.jl threads. See
-    # https://github.com/trixi-framework/Trixi.jl/issues/1583
-    # https://github.com/JuliaSIMD/Polyester.jl/issues/30
-    if reset_threads
-        Polyester.reset_threads!()
-    end
-
-    u0_ode = load_restart_file(semi, restart_file)
-    # TODO: MPI, do we want to synchronize loading and print debug statements, e.g. using
-    #       mpi_isparallel() && MPI.Barrier(mpi_comm())
-    #       See https://github.com/trixi-framework/Trixi.jl/issues/328
-    iip = true # is-inplace, i.e., we modify a vector when calling rhs_parabolic!, rhs!
-
-    # Convert the `jac_prototype` to real type, as seen here:
-    # https://docs.sciml.ai/DiffEqDocs/stable/tutorials/advanced_ode_example/#Declaring-a-Sparse-Jacobian-with-Automatic-Sparsity-Detection
-    rhs_parabolic_ode = SciMLBase.ODEFunction(rhs_parabolic!, jac = jac_shared)
-    # rhs_ode = SciMLBase.ODEFunction(rhs!, jac_prototype = float.(jac_prototype), colorvec = colorvec)
-    ode_split = SciMLBase.SplitFunction(rhs_parabolic_ode, rhs!, jac = jac_shared)
-
-    # Note that the IMEX time integration methods of OrdinaryDiffEq.jl treat the
-    # first function implicitly and the second one explicitly. Thus, we pass the
-    # stiffer parabolic function first.
-    return SplitODEProblem{iip}(ode_split, u0_ode, tspan, semi)
-end
-
-"""
-    semidiscretize(semi::SemidiscretizationHyperbolicParabolic, tspan)
-
-Wrap the semidiscretization `semi` as a split ODE problem in the time interval `tspan`
-that can be passed to `solve` from the [SciML ecosystem](https://diffeq.sciml.ai/latest/).
-The parabolic right-hand side is the first function of the split ODE problem and
-will be used by default by the implicit part of IMEX methods from the
-SciML ecosystem.
-
-The arguments `jac_prototype` and the `colorvec` are expected to come from [SparseDiffTools.jl](https://github.com/JuliaDiff/SparseDiffTools.jl)
-and specify the sparsity structure of the Jacobian to enable efficient implicit time stepping.
-"""
-function semidiscretize(semi::SemidiscretizationHyperbolicParabolic, tspan,
-                        jac_prototype::AbstractMatrix, colorvec::AbstractVector,
-                        jac_prototype_para::AbstractMatrix, colorvec_para::AbstractVector;
-                        reset_threads = true)
-    println("In semi1")
-    # Optionally reset Polyester.jl threads. See
-    # https://github.com/trixi-framework/Trixi.jl/issues/1583
-    # https://github.com/JuliaSIMD/Polyester.jl/issues/30
-    if reset_threads
-        Polyester.reset_threads!()
-    end
-
-    u0_ode = compute_coefficients(first(tspan), semi)
-    # TODO: MPI, do we want to synchronize loading and print debug statements, e.g. using
-    #       mpi_isparallel() && MPI.Barrier(mpi_comm())
-    #       See https://github.com/trixi-framework/Trixi.jl/issues/328
-    iip = true # is-inplace, i.e., we modify a vector when calling rhs_parabolic!, rhs!
-
-    # Convert the `jac_prototype` to real type, as seen here:
-    # https://docs.sciml.ai/DiffEqDocs/stable/tutorials/advanced_ode_example/#Declaring-a-Sparse-Jacobian-with-Automatic-Sparsity-Detection
-    rhs_parabolic_ode = SciMLBase.ODEFunction(rhs_parabolic!, jac_prototype = float.(jac_prototype_para), colorvec = colorvec_para)
-    rhs_ode = SciMLBase.ODEFunction(rhs!, jac_prototype = float.(jac_prototype), colorvec = colorvec)
-    # Note that the IMEX time integration methods of OrdinaryDiffEq.jl treat the
-    # first function implicitly and the second one explicitly. Thus, we pass the
-    # stiffer parabolic function first.
-    return SplitODEProblem{iip}(rhs_parabolic_ode, rhs_ode, u0_ode, tspan, semi)
-end
-
-"""
-    semidiscretize(semi::SemidiscretizationHyperbolicParabolic, tspan,
-                   restart_file::AbstractString)
-
-Wrap the semidiscretization `semi` as a split ODE problem in the time interval `tspan`
-that can be passed to `solve` from the [SciML ecosystem](https://diffeq.sciml.ai/latest/).
-The parabolic right-hand side is the first function of the split ODE problem and
-will be used by default by the implicit part of IMEX methods from the
-SciML ecosystem.
-
-The initial condition etc. is taken from the `restart_file`.
-
-The arguments `jac_prototype` and the `colorvec` are expected to come from [SparseDiffTools.jl](https://github.com/JuliaDiff/SparseDiffTools.jl)
-and specify the sparsity structure of the Jacobian to enable efficient implicit time stepping.
-"""
-function semidiscretize(semi::SemidiscretizationHyperbolicParabolic, tspan,
-                        restart_file::AbstractString,
-                        jac_prototype::AbstractMatrix, colorvec::AbstractVector,
-                        jac_prototype_para::AbstractMatrix, colorvec_para::AbstractVector;
-                        reset_threads = true)
-    println("In semi")
-    # Optionally reset Polyester.jl threads. See
-    # https://github.com/trixi-framework/Trixi.jl/issues/1583
-    # https://github.com/JuliaSIMD/Polyester.jl/issues/30
-    if reset_threads
-        Polyester.reset_threads!()
-    end
-
-    u0_ode = load_restart_file(semi, restart_file)
-    # TODO: MPI, do we want to synchronize loading and print debug statements, e.g. using
-    #       mpi_isparallel() && MPI.Barrier(mpi_comm())
-    #       See https://github.com/trixi-framework/Trixi.jl/issues/328
-    iip = true # is-inplace, i.e., we modify a vector when calling rhs_parabolic!, rhs!
-
-    # Convert the `jac_prototype` to real type, as seen here:
-    # https://docs.sciml.ai/DiffEqDocs/stable/tutorials/advanced_ode_example/#Declaring-a-Sparse-Jacobian-with-Automatic-Sparsity-Detection
-    rhs_parabolic_ode = SciMLBase.ODEFunction(rhs_parabolic!, jac_prototype = float.(jac_prototype_para), colorvec = colorvec_para)
-    rhs_ode = SciMLBase.ODEFunction(rhs!, jac_prototype = float.(jac_prototype), colorvec = colorvec)
-    
-    # Note that the IMEX time integration methods of OrdinaryDiffEq.jl treat the
-    # first function implicitly and the second one explicitly. Thus, we pass the
-    # stiffer parabolic function first.
-    return SplitODEProblem{iip}(rhs_parabolic_ode, rhs_ode, u0_ode, tspan, semi)
 end
 
 function rhs!(du_ode, u_ode, semi::SemidiscretizationHyperbolicParabolic, t)
